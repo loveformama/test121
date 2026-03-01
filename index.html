@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini Roblox IDE | 2026</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <style>
+        :root { --sidebar-bg: #1e1f20; --main-bg: #131314; --accent: #8ab4f8; }
+        body { font-family: 'Inter', sans-serif; background: var(--main-bg); color: #e3e3e3; height: 100vh; overflow: hidden; margin: 0; }
+        .sidebar { background: var(--sidebar-bg); width: 280px; display: flex; flex-direction: column; border-right: 1px solid #333; transition: margin-left 0.3s ease; }
+        .sidebar.collapsed { margin-left: -280px; }
+        .main-content { flex: 1; display: flex; flex-direction: column; position: relative; min-width: 0; }
+        .code-panel { width: 45%; background: #000; border-left: 1px solid #333; display: flex; flex-direction: column; }
+        .input-container { background: #1e1f20; border-radius: 28px; padding: 10px 20px; border: 1px solid #333; }
+        .tab-content { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+        .tab-content.active { display: flex; }
+        .mode-chip { padding: 6px 16px; border-radius: 20px; font-size: 12px; cursor: pointer; border: 1px solid #444; color: #aaa; white-space: nowrap; transition: 0.2s; }
+        .mode-chip.active { background: #3c4043; border-color: var(--accent); color: var(--accent); }
+        .code-display { font-family: 'JetBrains Mono', monospace; font-size: 13px; padding: 20px; color: #a5d6ff; overflow-y: auto; flex: 1; outline: none; line-height: 1.6; }
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-thumb { background: #3c4043; border-radius: 10px; }
+        .history-item { cursor: pointer; padding: 8px 12px; border-radius: 20px; font-size: 13px; transition: 0.2s; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .history-item:hover { background: #333537; }
+        .ai-avatar { width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(45deg, #4285f4, #9b51e0); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        
+        /* Стили инструкции */
+        .step-box { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-left: 3px solid #3b82f6; padding: 16px; margin: 15px 0; border-radius: 8px; font-size: 13px; line-height: 1.8; }
+        .hr-red { color: #ff4d4d; font-weight: 600; background: rgba(255,77,77,0.1); padding: 1px 4px; border-radius: 4px; }
+        .hr-yellow { color: #ffcc00; font-weight: 600; background: rgba(255,204,0,0.1); padding: 1px 4px; border-radius: 4px; }
+        .hr-blue { color: #4d94ff; font-weight: 600; background: rgba(77,148,255,0.1); padding: 1px 4px; border-radius: 4px; }
+        .hr-green { color: #00ff88; font-weight: 600; background: rgba(0,255,136,0.1); padding: 1px 4px; border-radius: 4px; }
+        
+        .chat-text { white-space: pre-wrap; word-break: break-word; line-height: 1.7; }
+        @keyframes dots { 0% { content: "."; } 33% { content: ".."; } 66% { content: "..."; } }
+        .loading-dots::after { content: "."; animation: dots 1.5s infinite; }
+        .toggle-sidebar { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); z-index: 50; background: #1e1f20; border: 1px solid #333; color: #888; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.3s; }
+        .toggle-sidebar:hover { color: #fff; background: #333; }
+    </style>
+</head>
+<body class="flex">
+
+    <aside id="sidebar" class="sidebar p-4">
+        <button onclick="newChat()" class="flex items-center gap-3 p-3 hover:bg-[#333537] rounded-full transition mb-6 w-full">
+            <i data-lucide="plus"></i> <span class="text-sm font-medium">Новый чат</span>
+        </button>
+        <nav class="flex gap-4 mb-4 border-b border-white/5 pb-2 px-2">
+            <button onclick="switchSidebar('history')" id="side-btn-history" class="text-[10px] uppercase font-bold text-blue-400">История</button>
+            <button onclick="switchSidebar('tips')" id="side-btn-tips" class="text-[10px] uppercase font-bold text-gray-500">Подсказки</button>
+        </nav>
+        <div id="sidebar-history" class="flex-1 overflow-y-auto space-y-1"></div>
+        <div id="sidebar-tips" class="hidden flex-1 overflow-y-auto space-y-4 p-2 text-xs text-gray-400">
+            <div id="tips-list" class="space-y-4"></div>
+            <button onclick="addCustomTip()" class="w-full py-2 border border-dashed border-gray-600 rounded-lg opacity-50 hover:opacity-100 transition mt-4">+ Подсказка</button>
+        </div>
+    </aside>
+
+    <div class="main-content">
+        <div class="toggle-sidebar" onclick="document.getElementById('sidebar').classList.toggle('collapsed')">
+            <i data-lucide="chevron-left" class="w-3"></i>
+        </div>
+
+        <header class="p-4 flex justify-between items-center px-12 border-b border-white/5">
+            <div class="flex gap-6">
+                <button onclick="switchTab('ai')" id="btn-ai" class="text-sm font-medium text-blue-400">Чат</button>
+                <button onclick="switchTab('analytics')" id="btn-analytics" class="text-sm font-medium text-gray-400">Аналитика</button>
+            </div>
+            <div class="ai-avatar"><i data-lucide="sparkles" class="w-4 text-white"></i></div>
+        </header>
+
+        <main id="tab-ai" class="tab-content active">
+            <div id="chat-stream" class="flex-1 overflow-y-auto p-8 space-y-8"></div>
+            <div class="p-4 max-w-4xl mx-auto w-full">
+                <div class="flex gap-2 mb-4 overflow-x-auto no-scrollbar">
+                    <div onclick="setMode('clean', this)" class="mode-chip active">Чистый код</div>
+                    <div onclick="setMode('thinking', this)" class="mode-chip">Глубокое мышление</div>
+                    <div onclick="setMode('analyst', this)" class="mode-chip">Анализ багов</div>
+                </div>
+                <div class="input-container">
+                    <div id="file-preview" class="flex gap-2 mb-2 hidden"></div>
+                    <div class="flex items-end gap-3">
+                        <label class="cursor-pointer p-2 hover:bg-white/5 rounded-full">
+                            <input type="file" id="file-input" class="hidden" onchange="handleFileUpload(this)">
+                            <i data-lucide="paperclip" class="w-5 text-gray-400"></i>
+                        </label>
+                        <textarea id="user-input" rows="1" placeholder="Опиши задачу..." class="flex-1 bg-transparent border-none outline-none py-2 text-sm resize-none" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+                        <button onclick="send()" class="p-2 text-blue-400 hover:bg-white/5 rounded-full"><i data-lucide="send-horizontal"></i></button>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <main id="tab-analytics" class="tab-content p-12">
+            <div class="max-w-xl mx-auto space-y-10">
+                <div class="grid grid-cols-2 gap-6">
+                    <div class="bg-[#1e1f20] p-6 rounded-3xl border border-white/5">
+                        <p class="text-[10px] text-gray-500 uppercase font-bold mb-2">Дней до дедлайна</p>
+                        <input id="ana-days" type="number" value="5" class="bg-transparent text-2xl font-bold w-full outline-none">
+                    </div>
+                    <div class="bg-[#1e1f20] p-6 rounded-3xl border border-white/5">
+                        <p class="text-[10px] text-gray-500 uppercase font-bold mb-2">Задач в очереди</p>
+                        <input id="ana-tasks" type="number" value="10" class="bg-transparent text-2xl font-bold w-full outline-none">
+                    </div>
+                </div>
+                <div class="space-y-4">
+                    <div class="flex justify-between items-end">
+                        <span class="text-xs font-bold text-gray-400 uppercase tracking-widest">Процент реализации</span>
+                        <span id="p-label" class="text-3xl font-black text-blue-400">0%</span>
+                    </div>
+                    <div class="h-4 w-full bg-white/5 rounded-full p-1 border border-white/10">
+                        <div id="p-bar" class="h-full bg-blue-500 rounded-full w-[0%] transition-all duration-[1.5s] shadow-[0_0_20px_rgba(59,130,246,0.6)]"></div>
+                    </div>
+                </div>
+                <button onclick="calculateProgress()" class="w-full py-5 bg-blue-600/10 border border-blue-600/30 text-blue-400 rounded-3xl text-xs font-black uppercase hover:bg-blue-600 hover:text-white transition-all tracking-widest">Обновить данные проекта</button>
+            </div>
+        </main>
+    </div>
+
+    <section class="code-panel">
+        <div class="flex justify-between items-center p-4 border-b border-white/10 bg-[#0a0a0a]">
+            <div class="flex items-center gap-3">
+                <button onclick="stepCode(-1)" class="p-1 hover:text-blue-400 transition"><i data-lucide="chevron-left" class="w-4"></i></button>
+                <span id="code-index" class="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">Code 0/0</span>
+                <button onclick="stepCode(1)" class="p-1 hover:text-blue-400 transition"><i data-lucide="chevron-right" class="w-4"></i></button>
+            </div>
+            <button id="copy-btn" onclick="copyCode()" class="flex items-center gap-2 text-[10px] bg-white/5 px-4 py-2 rounded-xl hover:bg-white/10 transition">
+                <i data-lucide="copy" class="w-3"></i> COPY
+            </button>
+        </div>
+        <div id="code-output" class="code-display whitespace-pre" contenteditable="true" spellcheck="false">-- Ожидание скрипта...</div>
+    </section>
+
+    <script>
+        const API_KEY = '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';
+        let currentMode = 'clean';
+        let attachedData = null;
+        let chats = JSON.parse(localStorage.getItem('gemini_chats')) || [];
+        let tips = JSON.parse(localStorage.getItem('gemini_tips')) || ["Используй task.wait()"];
+        let codeHistory = [];
+        let codePointer = -1;
+
+        lucide.createIcons();
+
+        function switchSidebar(type) {
+            document.getElementById('sidebar-history').classList.toggle('hidden', type !== 'history');
+            document.getElementById('sidebar-tips').classList.toggle('hidden', type !== 'tips');
+            document.getElementById('side-btn-history').className = type === 'history' ? 'text-[10px] uppercase font-bold text-blue-400' : 'text-[10px] uppercase font-bold text-gray-500';
+            document.getElementById('side-btn-tips').className = type === 'tips' ? 'text-[10px] uppercase font-bold text-blue-400' : 'text-[10px] uppercase font-bold text-gray-500';
+        }
+
+        function addCustomTip() {
+            const text = prompt("Текст подсказки:");
+            if(text) { tips.push(text); localStorage.setItem('gemini_tips', JSON.stringify(tips)); renderTips(); }
+        }
+
+        function renderTips() {
+            document.getElementById('tips-list').innerHTML = tips.map(t => `<div class="p-3 bg-white/5 rounded-xl border border-white/5">${t}</div>`).join('');
+        }
+
+        function setMode(mode, el) {
+            currentMode = mode;
+            document.querySelectorAll('.mode-chip').forEach(c => c.classList.remove('active'));
+            el.classList.add('active');
+        }
+
+        function parseRobloxTerms(text) {
+            return text
+                .replace(/ServerScriptService/g, '<span class="hr-red">ServerScriptService</span>')
+                .replace(/StarterPlayerScripts/g, '<span class="hr-red">StarterPlayerScripts</span>')
+                .replace(/StarterGui/g, '<span class="hr-red">StarterGui</span>')
+                .replace(/ReplicatedStorage/g, '<span class="hr-red">ReplicatedStorage</span>')
+                .replace(/Script/g, '<span class="hr-yellow">Script</span>')
+                .replace(/LocalScript/g, '<span class="hr-yellow">LocalScript</span>')
+                .replace(/ModuleScript/g, '<span class="hr-yellow">ModuleScript</span>')
+                .replace(/RemoteEvent/g, '<span class="hr-blue">RemoteEvent</span>')
+                .replace(/RemoteFunction/g, '<span class="hr-blue">RemoteFunction</span>')
+                .replace(/Workspace/g, '<span class="hr-green">Workspace</span>');
+        }
+
+        function stepCode(dir) {
+            if (codeHistory.length === 0) return;
+            codePointer = Math.max(0, Math.min(codeHistory.length - 1, codePointer + dir));
+            document.getElementById('code-output').innerText = codeHistory[codePointer];
+            document.getElementById('code-index').innerText = `Code ${codePointer + 1}/${codeHistory.length}`;
+        }
+
+        async function copyCode() {
+            const text = document.getElementById('code-output').innerText;
+            await navigator.clipboard.writeText(text);
+            const btn = document.getElementById('copy-btn');
+            btn.innerHTML = `<i data-lucide="check" class="w-3"></i> COPIED!`;
+            lucide.createIcons();
+            setTimeout(() => { btn.innerHTML = `<i data-lucide="copy" class="w-3"></i> COPY`; lucide.createIcons(); }, 2000);
+        }
+
+        async function handleFileUpload(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                attachedData = e.target.result;
+                document.getElementById('file-preview').classList.remove('hidden');
+                document.getElementById('file-preview').innerHTML = `<div class="text-[10px] bg-blue-500/20 p-2 px-4 rounded-full text-blue-300">📎 ${file.name}</div>`;
+            };
+            if (file.type.startsWith('image')) reader.readAsDataURL(file);
+            else reader.readAsText(file);
+        }
+
+        async function calculateProgress() {
+            const d = document.getElementById('ana-days').value;
+            const t = document.getElementById('ana-tasks').value;
+            const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                method: "POST",
+                headers: { "Authorization": `Bearer ${API_KEY}`, "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    "model": "deepseek/deepseek-chat",
+                    "messages": [{ "role": "user", "content": `Дней до конца: ${d}, задач осталось: ${t}. Оцени процент готовности (0-100). Выведи ТОЛЬКО ОДНО ЧИСЛО.` }]
+                })
+            });
+            const data = await response.json();
+            const val = data.choices[0].message.content.match(/\d+/);
+            if(val) {
+                document.getElementById('p-bar').style.width = val[0] + '%';
+                document.getElementById('p-label').innerText = val[0] + '%';
+            }
+        }
+
+        async function send() {
+            const input = document.getElementById('user-input');
+            const stream = document.getElementById('chat-stream');
+            if (!input.value && !attachedData) return;
+            const userText = input.value;
+            
+            stream.innerHTML += `<div class="flex justify-end mb-8"><div class="bg-[#2f2f2f] px-6 py-4 rounded-3xl max-w-xl text-sm shadow-xl">${userText}</div></div>`;
+            input.value = ''; input.style.height = 'auto';
+
+            const loader = document.createElement('div');
+            loader.className = "flex gap-4 mb-8";
+            loader.innerHTML = `
+                <div class="ai-avatar shadow-lg"><i data-lucide="sparkles" class="w-4 text-white"></i></div>
+                <div class="flex flex-col gap-1">
+                    <span class="text-[10px] font-black text-blue-400 uppercase tracking-widest">Система</span>
+                    <span class="text-xs text-gray-500 font-medium">Пишет код<span class="loading-dots"></span></span>
+                </div>`;
+            stream.appendChild(loader);
+            stream.scrollTop = stream.scrollHeight;
+
+            let sys = `Senior Roblox Dev 2026. Режим: ${currentMode}. 
+            ИНСТРУКЦИЯ: При выдаче кода всегда пиши блок инструкции. Сам придумывай название скрипта (например: PlayerHandler.luau) и место (например: ServerScriptService). 
+            Если скриптов несколько, разделяй их блоками кода. Используй абзацы в чате. Не используй жирный текст и #.`;
+
+            try {
+                const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                    method: "POST",
+                    headers: { "Authorization": `Bearer ${API_KEY}`, "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        "model": "deepseek/deepseek-chat",
+                        "messages": [{ "role": "user", "content": sys + "\nЗАДАЧА: " + userText + (attachedData ? "\nДАННЫЕ: " + attachedData : "") }]
+                    })
+                });
+                const data = await response.json();
+                loader.remove();
+                
+                const fullText = data.choices[0].message.content;
+                const codes = [...fullText.matchAll(/```(?:lua|luau)?([\s\S]*?)```/g)];
+                
+                let htmlRes = `<div class="flex gap-4 mb-8"><div class="ai-avatar shadow-lg"><i data-lucide="sparkles" class="w-4 text-white"></i></div><div class="chat-text text-sm max-w-2xl">`;
+                
+                let cleanDesc = fullText.replace(/```[\s\S]*?```/g, '').replace(/\*\*/g, '').replace(/#/g, '').trim();
+                htmlRes += parseRobloxTerms(cleanDesc);
+
+                if (codes.length > 0) {
+                    codes.forEach((match, idx) => {
+                        const codeBody = match[1].trim();
+                        codeHistory.push(codeBody);
+                        codePointer = codeHistory.length - 1;
+                        
+                        // Пытаемся угадать название из первой строки комментария, если его нет — генерим
+                        const suggestedName = codeBody.split('\n')[0].match(/--\s*(.*\.lua.*)/i)?.[1] || `Script_${idx+1}.luau`;
+                        const suggestedLoc = codeBody.includes('LocalPlayer') ? 'StarterPlayerScripts' : 'ServerScriptService';
+
+                        htmlRes += `
+                        <div class="step-box">
+                            <b class="text-blue-400">Скрипт #${idx+1}: ${suggestedName}</b><br>
+                            1. Создай новый <span class="highlight-yellow">Script</span> в <span class="highlight-red">${suggestedLoc}</span><br>
+                            2. Назови его <b>${suggestedName}</b><br>
+                            3. Вставь содержимое из окна Code ${codeHistory.length}
+                        </div>`;
+                    });
+                    stepCode(0);
+                }
+
+                htmlRes += `</div></div>`;
+                stream.innerHTML += htmlRes;
+                
+                // Сохранение
+                const chatObj = { id: Date.now(), title: userText.substring(0, 20), messages: stream.innerHTML, codes: codeHistory };
+                chats.unshift(chatObj);
+                localStorage.setItem('gemini_chats', JSON.stringify(chats.slice(0, 20)));
+                renderHistory();
+
+                attachedData = null; document.getElementById('file-preview').classList.add('hidden');
+            } catch (e) { loader.innerText = "Ошибка сети."; }
+            stream.scrollTop = stream.scrollHeight;
+            lucide.createIcons();
+        }
+
+        function renderHistory() {
+            document.getElementById('sidebar-history').innerHTML = chats.map(c => `<div class="history-item" onclick="loadChat(${c.id})">🕒 ${c.title}</div>`).join('');
+        }
+
+        function loadChat(id) {
+            const chat = chats.find(c => c.id === id);
+            if(chat) {
+                document.getElementById('chat-stream').innerHTML = chat.messages;
+                codeHistory = chat.codes || [];
+                codePointer = codeHistory.length - 1;
+                stepCode(0);
+                switchTab('ai');
+            }
+        }
+
+        function newChat() {
+            codeHistory = []; codePointer = -1;
+            document.getElementById('chat-stream').innerHTML = '';
+            document.getElementById('code-output').innerText = '-- Новый сеанс.';
+            document.getElementById('code-index').innerText = 'Code 0/0';
+            switchTab('ai');
+        }
+
+        function switchTab(id) {
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.getElementById('tab-' + id).classList.add('active');
+            document.getElementById('btn-ai').className = id === 'ai' ? 'text-sm font-medium text-blue-400' : 'text-sm font-medium text-gray-400';
+            document.getElementById('btn-analytics').className = id === 'analytics' ? 'text-sm font-medium text-blue-400' : 'text-sm font-medium text-gray-400';
+        }
+
+        renderHistory();
+        renderTips();
+    </script>
+</body>
+</html>
